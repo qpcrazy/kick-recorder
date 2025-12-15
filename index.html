@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Motion Recorder Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon.png">
+    <meta name="theme-color" content="#000000">
+
+    <style>
+        body { background-color: #000; color: white; overflow: hidden; touch-action: none; }
+        .recording-ring { animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+
+        .range-slider { position: relative; width: 100%; height: 20px; margin-top: 10px; }
+        .range-slider input[type=range] { position: absolute; pointer-events: none; -webkit-appearance: none; z-index: 2; height: 10px; width: 100%; opacity: 0; }
+        .range-slider input[type=range]::-webkit-slider-thumb { pointer-events: all; width: 24px; height: 24px; -webkit-appearance: none; background-color: white; border-radius: 50%; box-shadow: 0 0 5px rgba(0,0,0,0.5); cursor: pointer; }
+        .slider-track { position: absolute; z-index: 1; left: 0; right: 0; top: 0; bottom: 0; background: #333; border-radius: 5px; }
+        .slider-range { position: absolute; z-index: 2; left: 0; right: 0; top: 0; bottom: 0; background: #3b82f6; border-radius: 5px; }
+    </style>
+</head>
+<body class="flex flex-col md:flex-row h-[100dvh] w-screen relative">
+
+    <div class="flex-1 relative bg-black flex justify-center items-center overflow-hidden w-full h-full">
+        <video id="inputVideo" class="absolute w-full h-full object-cover" playsinline muted autoplay></video>
+        <canvas id="outputCanvas" class="absolute w-full h-full object-contain"></canvas>
+
+        <div id="guideOverlay" class="absolute inset-0 pointer-events-none flex flex-col justify-center items-center p-4">
+            <div class="border-2 border-white/50 w-full h-full max-w-lg max-h-[80%] rounded-lg border-dashed"></div>
+            <p id="statusMsg" class="absolute bottom-10 text-lg font-bold text-white drop-shadow-md bg-black/50 px-3 py-1 rounded whitespace-nowrap">
+                🧍 全身を映してください
+            </p>
+        </div>
+        <div id="countdownDisplay" class="absolute text-9xl font-black text-white drop-shadow-lg hidden z-20">3</div>
+    </div>
+
+    <div class="bg-gray-900/90 shrink-0 z-10 flex md:flex-col justify-between items-center p-4 gap-4 h-24 w-full md:h-full md:w-24 border-t md:border-t-0 md:border-l border-gray-800">
+        <button id="resetBtn" class="text-gray-400 p-2 hidden hover:text-white transition"><span class="material-icons-round text-3xl">replay</span></button>
+        <div class="hidden md:block w-8 h-8"></div>
+
+        <div class="relative flex items-center justify-center">
+            <button id="recordBtn" class="w-16 h-16 bg-red-600 rounded-full border-4 border-white flex items-center justify-center transition active:scale-95 shadow-lg">
+                <span class="material-icons-round text-3xl text-white">fiber_manual_record</span>
+            </button>
+            <div id="stopBtn" class="w-16 h-16 bg-white rounded-full flex items-center justify-center hidden recording-ring cursor-pointer">
+                <div class="w-6 h-6 bg-red-600 rounded-sm"></div>
+            </div>
+        </div>
+
+        <button id="toEditBtn" class="text-blue-400 font-bold p-2 hidden flex flex-col items-center hover:text-blue-300 transition">
+            <span class="material-icons-round text-3xl">edit</span>
+            <span class="text-[10px]">編集</span>
+        </button>
+        <div class="hidden md:block w-8 h-8"></div>
+    </div>
+
+    <div id="editModal" class="fixed inset-0 bg-gray-900 z-50 hidden flex flex-col h-[100dvh]">
+        <div class="p-4 border-b border-gray-800 flex justify-between items-center shrink-0 bg-gray-900">
+            <h2 class="font-bold text-gray-200">データ編集・生成</h2>
+            <button id="closeEditBtn" class="text-gray-400 p-2"><span class="material-icons-round">close</span></button>
+        </div>
+
+        <div class="flex-1 p-4 overflow-y-auto space-y-6">
+            <div class="bg-black rounded-lg p-2 border border-gray-700">
+                <div class="relative h-48 w-full flex items-center justify-center bg-gray-800 rounded overflow-hidden">
+                    <canvas id="previewCanvas" class="h-full w-auto object-contain"></canvas>
+                    <button id="previewPlayBtn" class="absolute bg-white/20 hover:bg-white/40 rounded-full p-2 backdrop-blur-sm">
+                        <span class="material-icons-round text-4xl">play_arrow</span>
+                    </button>
+                </div>
+                <div class="mt-4 px-2">
+                    <div class="flex justify-between text-xs text-gray-400 font-mono mb-1">
+                        <span>Start: <span id="startFrameText">0</span></span>
+                        <span>End: <span id="endFrameText">100</span></span>
+                    </div>
+                    <div class="range-slider">
+                        <div class="slider-track"></div>
+                        <div class="slider-range" id="sliderRange"></div>
+                        <input type="range" min="0" max="100" value="0" id="rangeStart">
+                        <input type="range" min="0" max="100" value="100" id="rangeEnd">
+                    </div>
+                </div>
+            </div>
+
+            <div class="space-y-4">
+                <h3 class="text-sm font-bold text-gray-300 border-b border-gray-700 pb-1">属性データ</h3>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-gray-400 block mb-1">技名 (必須)</label>
+                        <input type="text" id="techNameInput" class="w-full bg-gray-700 text-white p-2 rounded border border-gray-600 focus:border-blue-500 outline-none" placeholder="右ストレート">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400 block mb-1">実演者</label>
+                        <input type="text" id="performerName" class="w-full bg-gray-700 text-white p-2 rounded border border-gray-600 focus:border-blue-500 outline-none" placeholder="Admin">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-gray-400 block mb-1">実演者の構え</label>
+                        <div class="flex bg-gray-700 rounded p-1 border border-gray-600">
+                            <label class="flex-1 text-center cursor-pointer">
+                                <input type="radio" name="stance" value="orthodox" class="hidden peer" checked>
+                                <span class="block py-1 text-xs rounded text-gray-400 peer-checked:bg-blue-600 peer-checked:text-white transition">右利き</span>
+                            </label>
+                            <label class="flex-1 text-center cursor-pointer">
+                                <input type="radio" name="stance" value="southpaw" class="hidden peer">
+                                <span class="block py-1 text-xs rounded text-gray-400 peer-checked:bg-blue-600 peer-checked:text-white transition">サウスポー</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400 block mb-1">身長 (cm)</label>
+                        <input type="number" id="heightInput" class="w-full bg-gray-700 text-white p-2 rounded border border-gray-600 focus:border-blue-500 outline-none" value="170" placeholder="170">
+                    </div>
+                </div>
+            </div>
+
+            <div id="resultArea" class="hidden">
+                 <h3 class="text-sm font-bold text-gray-300 border-b border-gray-700 pb-1 mb-2">生成データ</h3>
+                 <div class="bg-black p-2 rounded h-24 overflow-auto border border-gray-700">
+                    <pre id="jsonPreview" class="text-[10px] text-green-400 font-mono whitespace-pre-wrap break-all">waiting...</pre>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-4 border-t border-gray-800 bg-gray-900 shrink-0 pb-safe grid grid-cols-2 gap-3">
+            <button id="generateBtn" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg">JSON生成</button>
+            <button id="copyJsonBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 opacity-50 cursor-not-allowed" disabled>
+                <span class="material-icons-round">content_copy</span> コピー
+            </button>
+        </div>
+    </div>
+
+    <script src="js/normalization.js"></script>
+    <script src="js/recorder.js"></script>
+</body>
+</html>
