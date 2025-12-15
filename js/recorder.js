@@ -443,5 +443,51 @@ copyJsonBtn.addEventListener('click', () => {
     navigator.clipboard.writeText(text).then(() => { alert("コピーしました！"); }).catch(() => { alert("コピー失敗"); });
 });
 
+// ★追加: PCサーバーへ直接送信するボタンの処理
+// (HTML側に id="sendToPcBtn" のボタンを追加する必要があります)
+const sendToPcBtn = document.getElementById('sendToPcBtn'); // 後でHTMLに追加します
+
+if (sendToPcBtn) {
+    sendToPcBtn.addEventListener('click', async () => {
+        // 現在プレビュー中のJSONデータを取得
+        const jsonText = jsonPreview.textContent;
+        if (!jsonText || jsonText === "waiting...") {
+            alert("データがありません。先に「JSON生成」をしてください。");
+            return;
+        }
+
+        try {
+            const data = JSON.parse(jsonText);
+
+            // ボタンを一時的に無効化
+            sendToPcBtn.disabled = true;
+            sendToPcBtn.textContent = "送信中...";
+
+            // PCのサーバーにPOST送信
+            // (ngrok経由でも、相対パス '/api/...' でサーバーに届きます)
+            const response = await fetch('/api/save-fingerprint', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                alert(`PCに保存しました！\nファイル名: ${result.filename}`);
+            } else {
+                alert("保存エラー: " + result.error);
+            }
+
+        } catch (e) {
+            console.error(e);
+            alert("送信に失敗しました。\n通信環境を確認してください。");
+        } finally {
+            sendToPcBtn.disabled = false;
+            sendToPcBtn.innerHTML = '<span class="material-icons-round">cloud_upload</span> PCへ保存';
+        }
+    });
+}
+
 // init
 init();
