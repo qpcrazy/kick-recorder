@@ -273,7 +273,11 @@ generateBtn.addEventListener('click', () => {
     resultArea.classList.remove('hidden');
     jsonPreview.textContent = JSON.stringify(output, null, 2);
     copyJsonBtn.disabled = false;
-    copyJsonBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+
+    if (sendToPcBtn) {
+        sendToPcBtn.disabled = false;
+        sendToPcBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+    }
 });
 
 // サウスポーをオーソドックスに変換 (X軸反転 & 左右入れ替え)
